@@ -51,7 +51,7 @@ def main():
             try:
                 # 尝试导入Windows特定的模块
                 import ctypes
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VRST.App.1.0.1")
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VRST.App.1.0.2")
             except Exception:
                 # 如果导入失败或设置失败，忽略错误
                 pass

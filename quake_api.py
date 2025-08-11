@@ -2,6 +2,7 @@ import requests
 import base64
 import json
 import time
+import random
 
 
 class QuakeAPI:
@@ -24,6 +25,7 @@ class QuakeAPI:
         :param size: 每页数量
         :return: 搜索结果
         """
+        # print(region)
         try:
             # 构建查询语句
             if region:
@@ -33,7 +35,7 @@ class QuakeAPI:
                     query = f"{query} AND province:\"{province}\" AND city:\"{city}\""
                 elif region_parts[0]:  # 只有省份
                     query = f"{query} AND province:\"{region_parts[0]}\""
-
+            # print(query)
             # 构建请求数据
             data = {
                 "query": query,
@@ -41,9 +43,13 @@ class QuakeAPI:
                 "size": size,
             }
             # print(data)
+            # 添加1-2秒随机延迟，避免API请求过于频繁
+            delay = random.uniform(1, 2)
+            time.sleep(delay)
+            
             # 发送请求
             response = requests.post(
-                f"{self.base_url}/search/quake_host",
+                f"{self.base_url}/search/quake_service",
                 headers=self.headers,
                 json=data
             )

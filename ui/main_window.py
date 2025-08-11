@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """初始化UI"""
         # 设置窗口标题和大小
-        self.setWindowTitle("漏洞储备检索工具 VRST V1.0.1")
+        self.setWindowTitle("漏洞储备检索工具 VRST V1.0.2")
         
         # 设置应用图标 - 优化Windows平台图标显示
         self.setup_application_icon()
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
                 try:
                     # 尝试导入Windows特定的模块
                     import ctypes
-                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VRST.App.1.0.1")
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("VRST.App.1.0.2")
                 except Exception:
                     # 如果导入失败或设置失败，忽略错误
                     pass

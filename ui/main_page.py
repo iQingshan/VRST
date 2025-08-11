@@ -72,10 +72,10 @@ class QuakeSearchThread(QThread):
             query = self.query
             if self.region:
                 province, city = self.region.split(' ', 1) if ' ' in self.region else (self.region, '')
-                query += f' province_cn:"{province}"'
+                query += f' AND province_cn:"{province}"'
                 if city:
-                    query += f' city_cn:"{city}"'
-            
+                    query += f'AND city_cn:"{city}"'
+
             # 执行Quake搜索
             result = self.quake_api.search(
                 query=query,
@@ -129,9 +129,10 @@ class BatchSearchWorker(QObject):
     search_error = pyqtSignal(str)  # 错误信息
     finished = pyqtSignal()  # 完成信号
 
-    def __init__(self, fofa_api, fingerprints, region=""):
+    def __init__(self, api, api_type, fingerprints, region=""):
         super().__init__()
-        self.fofa_api = fofa_api
+        self.api = api  # 可以是FOFA API或Quake API
+        self.api_type = api_type  # 0: FOFA, 1: Quake
         self.fingerprints = fingerprints
         self.region = region
         self.results = []
@@ -144,33 +145,49 @@ class BatchSearchWorker(QObject):
                 # 更新进度
                 self.search_progress.emit(i + 1, total, fingerprint.get('name', '未命名'))
                 
-                # 执行FOFA搜索
+                # 获取查询语句
                 query = fingerprint.get('url', '')
                 if not query:
                     continue
-                    
-                result = self.fofa_api.search(
-                    query=query,
-                    region=self.region,
-                    page=1,
-                    size=10000
-                )
                 
+                # 根据API类型执行不同的搜索
+                if self.api_type == 0:  # FOFA模式
+                    result = self.api.search(
+                        query=query,
+                        region=self.region,
+                        page=1,
+                        size=1000
+                    )
+                else:  # Quake模式
+                    # 构建查询语句
+                    quake_query = query
+                    if self.region:
+                        province, city = self.region.split(' ', 1) if ' ' in self.region else (self.region, '')
+                        quake_query += f' AND province_cn:"{province}"'
+                        if city:
+                            quake_query += f' AND city_cn:"{city}"'
+                    
+                    result = self.api.search(
+                        query=quake_query,
+                        page=1,
+                        size=500
+                    )
+
                 # 检查是否有错误
                 if "error" in result and result["error"] is not False:
                     self.search_error.emit(str(result["error"]))
                     return
-                
+
                 # 添加指纹信息到结果中
                 result['fingerprint'] = {
                     'name': fingerprint.get('name', '未命名'),
                     'version': fingerprint.get('version', ''),
                     'description': fingerprint.get('description', '')
                 }
-                
+
                 # 添加到结果列表
                 self.results.append(result)
-            
+
             # 发送结果
             self.search_finished.emit(self.results)
         except Exception as e:
@@ -188,7 +205,7 @@ class MainPage(QWidget):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        
+
         # 获取DPI缩放比例
         self.dpi_scale = self.get_dpi_scale()
 
@@ -218,7 +235,7 @@ class MainPage(QWidget):
 
         # 初始化UI
         self.init_ui()
-        
+
     def get_dpi_scale(self):
         """获取DPI缩放比例"""
         import platform
@@ -227,13 +244,13 @@ class MainPage(QWidget):
                 # 获取主屏幕
                 screen = QApplication.primaryScreen()
                 dpi = screen.logicalDotsPerInch()
-                
+
                 # 标准DPI是96
                 scale = dpi / 96.0
-                
+
                 # 限制缩放范围，避免过大或过小
                 scale = max(0.8, min(scale, 2.0))
-                
+
                 return scale
             except Exception as e:
                 print(f"获取DPI缩放失败: {e}")
@@ -254,7 +271,7 @@ class MainPage(QWidget):
         small_spacing = int(10 * self.dpi_scale)
         button_min_width = int(80 * self.dpi_scale)
         mode_button_min_width = int(120 * self.dpi_scale)
-        
+
         # 计算缩放后的字体大小
         font_size_normal = int(10 * self.dpi_scale)
         font_size_small = int(9 * self.dpi_scale)
@@ -306,24 +323,25 @@ class MainPage(QWidget):
         self.result_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 设置为不可编辑
         self.result_table.setSelectionBehavior(QTableWidget.SelectRows)  # 设置为选择整行
         self.result_table.setContextMenuPolicy(Qt.CustomContextMenu)  # 设置为自定义右键菜单
-        
+
         # 设置表格列数和表头
-        self.result_table.setColumnCount(9)
-        self.result_table.setHorizontalHeaderLabels(["主机", "IP", "端口", "协议", "标题", "域名", "服务器", "城市", "系统名称"])
-        
+        self.result_table.setColumnCount(10)
+        self.result_table.setHorizontalHeaderLabels(["指纹系统名称", "主机", "IP", "端口", "协议", "标题", "域名", "服务器", "城市", "系统名称"])
+
         # 调整列宽（根据DPI缩放）
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.result_table.horizontalHeader().setStretchLastSection(True)
-        self.result_table.setColumnWidth(0, int(150 * self.dpi_scale))  # 主机
-        self.result_table.setColumnWidth(1, int(120 * self.dpi_scale))  # IP
-        self.result_table.setColumnWidth(2, int(60 * self.dpi_scale))   # 端口
-        self.result_table.setColumnWidth(3, int(80 * self.dpi_scale))   # 协议
-        self.result_table.setColumnWidth(4, int(200 * self.dpi_scale))  # 标题
-        self.result_table.setColumnWidth(5, int(150 * self.dpi_scale))  # 域名
-        self.result_table.setColumnWidth(6, int(150 * self.dpi_scale))  # 服务器
-        self.result_table.setColumnWidth(7, int(100 * self.dpi_scale))  # 城市
-        self.result_table.setColumnWidth(8, int(150 * self.dpi_scale))  # 系统名称
-        
+        self.result_table.setColumnWidth(0, int(150 * self.dpi_scale))  # 指纹系统名称
+        self.result_table.setColumnWidth(1, int(150 * self.dpi_scale))  # 主机
+        self.result_table.setColumnWidth(2, int(120 * self.dpi_scale))  # IP
+        self.result_table.setColumnWidth(3, int(60 * self.dpi_scale))   # 端口
+        self.result_table.setColumnWidth(4, int(80 * self.dpi_scale))   # 协议
+        self.result_table.setColumnWidth(5, int(200 * self.dpi_scale))  # 标题
+        self.result_table.setColumnWidth(6, int(150 * self.dpi_scale))  # 域名
+        self.result_table.setColumnWidth(7, int(150 * self.dpi_scale))  # 服务器
+        self.result_table.setColumnWidth(8, int(100 * self.dpi_scale))  # 城市
+        self.result_table.setColumnWidth(9, int(150 * self.dpi_scale))  # 系统名称
+
         main_layout.addWidget(self.result_table)
 
         # 创建底部按钮区域
@@ -334,7 +352,7 @@ class MainPage(QWidget):
         self.export_button.setFont(QFont("PingFang SC", font_size_normal))
         self.export_button.setEnabled(False)
         button_layout.addWidget(self.export_button)
-        
+
         # 检索漏洞指纹按钮
         self.fingerprint_button = QPushButton("检索漏洞指纹")
         self.fingerprint_button.setFont(QFont("PingFang SC", font_size_normal))
@@ -378,7 +396,7 @@ class MainPage(QWidget):
 
         # 表格右键菜单事件
         self.result_table.customContextMenuRequested.connect(self.show_context_menu)
-        
+
         # 表格双击事件
         self.result_table.doubleClicked.connect(self.on_table_double_click)
 
@@ -390,17 +408,17 @@ class MainPage(QWidget):
         """处理表格双击事件"""
         row = index.row()
         url = None
-        
+
         # 获取主机、端口和协议信息
         host_item = self.result_table.item(row, 0)  # 假设host在第0列
         port_item = self.result_table.item(row, 1)  # 假设port在第1列
         protocol_item = self.result_table.item(row, 2)  # 假设protocol在第2列
-        
+
         if host_item:
             host = host_item.text().strip()
             port = port_item.text().strip() if port_item else ""
             protocol = protocol_item.text().strip().lower() if protocol_item else "http"
-            
+
             # 清理协议格式
             protocol = protocol.split(":")[0].replace("/", "").lower()
             if protocol not in ["http", "https"]:
@@ -517,7 +535,7 @@ class MainPage(QWidget):
         # 加载上次选择的地区
         last_province = self.config.get('last_province', '')
         last_city = self.config.get('last_city', '')
-        
+
         if last_province and last_province in self.china_regions:
             self.province_combo.setCurrentText(last_province)
             if last_city and last_city in self.china_regions[last_province]:
@@ -582,6 +600,7 @@ class MainPage(QWidget):
             self.search_thread = QuakeSearchThread(
                 quake_api=self.quake_api,
                 query=query,
+                region=region if region else None,
                 page=self.current_page,
                 size=self.page_size
             )
@@ -669,7 +688,7 @@ class MainPage(QWidget):
             'framework': '框架',
             'body': '正文'
         }
-        
+
         # 转换列名为中文
         chinese_fields = []
         for field in fields:
@@ -677,7 +696,7 @@ class MainPage(QWidget):
                 chinese_fields.append(field_name_map[field])
             else:
                 chinese_fields.append(field)  # 如果没有对应的中文名，保留原名
-        
+
         # 设置表格列数和表头
         self.result_table.setColumnCount(len(fields))
         self.result_table.setHorizontalHeaderLabels(chinese_fields)
@@ -693,18 +712,18 @@ class MainPage(QWidget):
 
         # 调整列宽
         self.adjust_table_columns(fields)
-        
+
     def adjust_table_columns(self, fields):
         """调整表格列宽"""
         header = self.result_table.horizontalHeader()
-        
+
         # 根据DPI缩放调整列宽
         scale_factor = self.dpi_scale
-        
+
         # 设置默认大小为内容适应
         default_width = int(120 * scale_factor)
         header.setDefaultSectionSize(default_width)
-        
+
         # 为常用字段设置固定宽度（考虑DPI缩放）
         fixed_width_columns = {
             'host': int(200 * scale_factor),  # 主机列宽
@@ -717,11 +736,11 @@ class MainPage(QWidget):
             'city': int(100 * scale_factor),   # 城市列宽
             'os': int(120 * scale_factor)      # 系统名称列宽
         }
-        
+
         # 先将所有列设置为固定宽度模式
         for col in range(len(fields)):
             header.setSectionResizeMode(col, QHeaderView.Interactive)
-        
+
         # 为每列设置适当的宽度
         for col, field in enumerate(fields):
             if field in fixed_width_columns:
@@ -730,11 +749,11 @@ class MainPage(QWidget):
             else:
                 # 对于未知字段，设置一个合理的默认宽度
                 header.resizeSection(col, default_width)
-        
+
         # 设置最后一列为自动拉伸，填充剩余空间
         if len(fields) > 0:
             header.setSectionResizeMode(len(fields) - 1, QHeaderView.Stretch)
-        
+
         # 确保表格在初始显示时能看到所有列
         self.result_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
@@ -877,19 +896,19 @@ class MainPage(QWidget):
         """处理扫描结果"""
         # 隐藏进度条
         self.progress_bar.setVisible(False)
-        
+
         # 显示扫描结果
         if "error" in result:
             QMessageBox.critical(self, "扫描错误", result["error"])
             self.status_changed.emit("扫描失败")
             return
-            
+
         # 检查是否有有效结果
         if not result.get("success", False) or "results" not in result:
             QMessageBox.information(self, "扫描结果", "没有找到任何结果")
             self.status_changed.emit("扫描完成，无结果")
             return
-            
+
         # 处理Afrog扫描结果
         scan_results = result["results"]
         if not isinstance(scan_results, list):
@@ -902,7 +921,7 @@ class MainPage(QWidget):
         for item in scan_results:
             if not isinstance(item, dict):
                 continue
-                
+
             display_item = {
                 "目标": item.get("target", ""),
                 "漏洞名称": item.get("pocinfo", {}).get("infoname", ""),
@@ -912,7 +931,7 @@ class MainPage(QWidget):
                 "URL": item.get("fulltarget", "")
             }
             display_data.append(display_item)
-            
+
         # 将结果传递给漏洞页
         main_window = self.window()
         if main_window and hasattr(main_window, 'get_tab'):
@@ -920,34 +939,34 @@ class MainPage(QWidget):
             if vulnerability_page and hasattr(vulnerability_page, 'update_results'):
                 vulnerability_page.update_results(display_data)
 
-            
+
         # 转换为DataFrame
         df = pd.DataFrame(display_data)
-        
+
         # 显示结果
         if df.empty:
             QMessageBox.information(self, "扫描结果", "没有找到任何结果")
             self.status_changed.emit("扫描完成，无结果")
             return
-            
+
         # 显示结果表格
         self.result_table.clear()
         self.result_table.setRowCount(len(df))
         self.result_table.setColumnCount(len(df.columns))
         self.result_table.setHorizontalHeaderLabels(df.columns.tolist())
-        
+
         for row in range(len(df)):
             for col, col_name in enumerate(df.columns):
                 item = QTableWidgetItem(str(df.iloc[row, col]))
                 self.result_table.setItem(row, col, item)
-                
+
         # 调整列宽
         self.result_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.result_table.horizontalHeader().setStretchLastSection(True)
-        
+
         # 更新状态
         self.status_changed.emit(f"扫描完成，共找到 {len(df)} 条结果")
-        
+
         # 启用导出按钮
         self.export_button.setEnabled(True)
 
@@ -962,7 +981,7 @@ class MainPage(QWidget):
         """批量检索漏洞指纹"""
         # 获取当前窗口的父窗口（主窗口）
         main_window = self.window()
-        
+
         # 获取漏洞指纹标签页
         fingerprint_tab = None
         for i in range(main_window.tab_widget.count()):
@@ -970,32 +989,40 @@ class MainPage(QWidget):
             if hasattr(tab, 'fingerprints') and hasattr(tab, 'fingerprint_file'):
                 fingerprint_tab = tab
                 break
-        
+
         if not fingerprint_tab:
             QMessageBox.warning(self, "警告", "未找到漏洞指纹标签页")
             return
-            
+
         # 检查是否有保存的指纹
         if not fingerprint_tab.fingerprints:
             QMessageBox.warning(self, "警告", "没有保存的漏洞指纹，请先在指纹标签页添加指纹")
             # 切换到漏洞指纹标签页
             main_window.switch_to_tab("vulnerability_fingerprint")
             return
-            
+
         # 显示进度条
         self.progress_bar.setVisible(True)
         self.status_changed.emit("正在批量检索漏洞指纹...")
-        
+
         # 执行批量检索
         self.batch_search_fingerprints(fingerprint_tab.fingerprints)
 
     def batch_search_fingerprints(self, fingerprints):
         """批量检索漏洞指纹"""
-        # 检查FOFA API是否已配置
-        if not self.config.is_fofa_configured():
-            self.progress_bar.setVisible(False)
-            QMessageBox.warning(self, "警告", "请先在配置页面设置FOFA API凭证")
-            return
+        # 根据当前模式检查API是否已配置
+        if self.current_mode == 0:  # FOFA模式
+            if not self.config.is_fofa_configured():
+                self.progress_bar.setVisible(False)
+                QMessageBox.warning(self, "警告", "请先在配置页面设置FOFA API凭证")
+                return
+            api = self.fofa_api
+        else:  # Quake模式
+            if not self.config.is_quake_configured():
+                self.progress_bar.setVisible(False)
+                QMessageBox.warning(self, "警告", "请先在配置页面设置Quake API凭证")
+                return
+            api = self.quake_api
 
         # 获取地区参数
         province = self.province_combo.currentText()
@@ -1009,7 +1036,7 @@ class MainPage(QWidget):
 
         # 创建一个线程来执行批量检索，避免界面卡顿
         self.batch_search_thread = QThread()
-        self.batch_search_worker = BatchSearchWorker(self.fofa_api, fingerprints, region)
+        self.batch_search_worker = BatchSearchWorker(api, self.current_mode, fingerprints, region)
         self.batch_search_worker.moveToThread(self.batch_search_thread)
 
         # 连接信号
@@ -1021,54 +1048,65 @@ class MainPage(QWidget):
 
         # 启动线程
         self.batch_search_thread.start()
-        
+
     def update_batch_search_progress(self, current, total, fingerprint_name):
         """更新批量检索进度"""
         self.status_changed.emit(f"正在检索 ({current}/{total}): {fingerprint_name}")
-        
+
     def handle_batch_search_result(self, results):
         """处理批量检索结果"""
         # 隐藏进度条
         self.progress_bar.setVisible(False)
-        
+
         # 检查是否有结果
         if not results:
             QMessageBox.information(self, "检索完成", "批量检索完成，但没有找到任何结果")
             self.status_changed.emit("批量检索完成，无结果")
             return
-            
-        # 合并所有结果
+
+        # 合并所有结果，并添加指纹系统名称
         all_results = []
         for result in results:
             if "results" in result and result["results"]:
-                all_results.extend(result["results"])
+                # 获取指纹信息
+                fingerprint_name = result.get('fingerprint', {}).get('name', '未知系统')
+
+                # 为每个结果添加指纹系统名称到最前方
+                for item in result["results"]:
+                    # 将指纹系统名称添加到结果中的最前方
+                    item_with_fingerprint = list(item)
+                    item_with_fingerprint.insert(0, fingerprint_name)
+                    all_results.append(item_with_fingerprint)
 
         if not all_results:
             QMessageBox.information(self, "检索完成", "批量检索完成，但没有找到任何结果")
             self.status_changed.emit("批量检索完成，无结果")
             return
 
-        # 保存合并后的结果
+        # 保存合并后的结果，添加指纹系统名称字段到最前方
+        fields = results[0].get("fields", ["host", "ip", "port", "protocol", "title", "domain", "server", "city"])
+        fields.insert(0, "指纹系统名称")  # 添加指纹系统名称字段到最前方
+
         self.search_results = {
             "results": all_results,
-            "fields": results[0].get("fields", ["host", "ip", "port", "protocol", "title", "domain", "server", "city"]),
+            "fields": fields,
             "size": len(all_results)
         }
-        
+
         # 显示结果
         self.display_results(self.search_results)
-        
+
         # 启用导出按钮
         self.export_button.setEnabled(True)
-        
+
         # 更新状态
         self.status_changed.emit(f"批量检索完成，共找到 {len(all_results)} 条结果")
-        
+
     def handle_batch_search_error(self, error_message):
         """处理批量检索错误"""
         # 隐藏进度条
         self.progress_bar.setVisible(False)
-        
+
         # 显示错误消息
         QMessageBox.critical(self, "检索错误", f"批量检索失败: {error_message}")
         self.status_changed.emit("批量检索失败")
@@ -1078,7 +1116,7 @@ class MainPage(QWidget):
         self.current_mode = 1 - self.current_mode  # 在0和1之间切换
         mode_name = "FOFA" if self.current_mode == 0 else "Quake"
         self.mode_button.setText(f"切换模式({mode_name})")
-        
+
         # 根据模式更新UI状态
         if self.current_mode == 0:  # FOFA模式
             self.province_combo.setEnabled(True)
@@ -1088,7 +1126,7 @@ class MainPage(QWidget):
             self.province_combo.setEnabled(True)
             self.city_combo.setEnabled(True)
             self.status_changed.emit("已切换至Quake模式，支持按地区筛选(使用province:\"省份\" city:\"城市\"语法)")
-        
+
     def closeEvent(self, event):
         """关闭事件处理"""
         """保存配置"""
@@ -1101,36 +1139,3 @@ class MainPage(QWidget):
         """显示主页面"""
         # 显示窗口
         super().show()
-
-        # 扫描结果展示
-        result_group = QGroupBox("最近扫描结果")
-        self.result_table = QTableWidget()
-        self.result_table.setColumnCount(4)
-        self.result_table.setHorizontalHeaderLabels(["目标", "风险等级", "发现时间", "状态"])
-        
-        # 添加风险等级颜色标记
-        self.result_table.itemChanged.connect(self.apply_risk_color)
-
-        # 添加统计图表
-        chart_widget = QWidget()
-        chart_layout = QVBoxLayout()
-        self.plot_widget = pg.PlotWidget(title="漏洞分布统计")
-        chart_layout.addWidget(self.plot_widget)
-        chart_widget.setLayout(chart_layout)
-
-        # 使用QSplitter实现可调节布局
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self.result_table)
-        splitter.addWidget(chart_widget)
-        splitter.setSizes([400, 200])
-
-    def apply_risk_color(self, item):
-        if item.column() == 1:  # 风险等级列
-            text = item.text().lower()
-            colors = {
-                'critical': '#ff4444',
-                'high': '#ffa500',
-                'medium': '#ffff00',
-                'low': '#00ff00'
-            }
-            item.setBackground(QColor(colors.get(text, '#ffffff')))

@@ -71,7 +71,7 @@ class AboutPage(QWidget):
         project_browser.setOpenExternalLinks(True)
         
         project_text = """
-        <h3>版本: 1.0.1</h3>
+        <h3>版本: 1.0.2</h3>
         
         <h3>功能简介</h3>
         <p>本工具是一个用于解决红队进行攻防演练时快速检索漏洞储备中涉及靶标的资产，主要功能包括:</p>
@@ -117,8 +117,8 @@ class AboutPage(QWidget):
         contributors_browser.setHtml("""
         <ul>
             <li>青山 - 核心开发者 & 牛马红队</li>
-            <li>张三 - UI设计</li>
-            <li>李四 - 测试工程师</li>
+            <li>PPP - 某厂实验室成员</li>
+            <li>麒麟兔 - 某央企红队</li>
             <li>王五 - 文档编写</li>
             <li>赵六 - 社区支持</li>
             <li>其他贡献者 - 感谢所有参与和支持本项目的朋友们！</li>
@@ -135,6 +135,13 @@ class AboutPage(QWidget):
         
         changelog_browser = QTextBrowser()
         changelog_browser.setHtml("""
+        <h4>v1.0.2 (2025-08-03)</h4>
+        <ul>
+            <li>增加已添加指纹复制功能，方便检索某单个指纹。(@麒麟兔)</li>
+            <li>优化查询界面，增加批量检索后系统名称显示。</li>
+            <li>修复夸克的使用，调用API需要积分请注意。</li>
+            <li>修复已知bug</li>
+        </ul>
         <h4>v1.0.1 (2025-07-12)</h4>
         <ul>
             <li>增加远程更新漏洞储备指纹，团队协作。(@ppp)</li>
